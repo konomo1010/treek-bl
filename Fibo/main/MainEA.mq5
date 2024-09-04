@@ -79,12 +79,11 @@ datetime entryTime = 0;
 double trailingMaxHigh, trailingMinLow;
 
 
-
-
 // 用于记录当前K线的时间
 datetime currentBarTime = 0;
 
-
+// 新增均线、ATR和RSI指标的句柄
+int ema576Handle, ema676Handle, atrHandle, rsiHandle;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -95,9 +94,21 @@ int OnInit()
     maHandle2 = iMA(_Symbol, Timeframe, MA2_Period, 0, MA_Method, Applied_Price);
     maHandleMA144 = iMA(_Symbol, Timeframe, 144, 0, MA_Method, Applied_Price);
 
-    if (maHandle1 == INVALID_HANDLE || maHandle2 == INVALID_HANDLE || maHandleMA144 == INVALID_HANDLE)
+    // 创建EMA576和EMA676均线句柄
+    ema576Handle = iMA(_Symbol, Timeframe, 576, 0, MODE_EMA, PRICE_CLOSE);
+    ema676Handle = iMA(_Symbol, Timeframe, 676, 0, MODE_EMA, PRICE_CLOSE);
+
+    // 创建ATR14指标句柄
+    atrHandle = iATR(_Symbol, Timeframe, 14);
+
+    // 创建RSI21指标句柄
+    rsiHandle = iRSI(_Symbol, Timeframe, 21, PRICE_CLOSE);
+
+    if (maHandle1 == INVALID_HANDLE || maHandle2 == INVALID_HANDLE || maHandleMA144 == INVALID_HANDLE ||
+        ema576Handle == INVALID_HANDLE || ema676Handle == INVALID_HANDLE || atrHandle == INVALID_HANDLE ||
+        rsiHandle == INVALID_HANDLE)
     {
-        Print("无法创建MA句柄");
+        Print("无法创建指标句柄");
         return (INIT_FAILED);
     }
 
@@ -115,9 +126,71 @@ void OnDeinit(const int reason)
     IndicatorRelease(maHandle1);
     IndicatorRelease(maHandle2);
     IndicatorRelease(maHandleMA144);
+    IndicatorRelease(ema576Handle);
+    IndicatorRelease(ema676Handle);
+    IndicatorRelease(atrHandle);
+    IndicatorRelease(rsiHandle);
 }
 
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+{
+    if (!IsWithinTradingHours(TradeStartHour, TradeEndHour) || !IsMonthAllowed(AllowedMonths))
+        return;
 
+    // 获取当前K线的时间
+    datetime newBarTime = iTime(_Symbol, Timeframe, 0);
+
+    // 判断是否是新K线开始
+    if (newBarTime != currentBarTime)
+    {
+        currentBarTime = newBarTime;  // 更新当前K线的时间
+        isOrderClosedThisBar = false; // 重置标记，表示新K线开始
+        stopLossHitThisBar = false;   // 重置止损状态
+
+        // 只有在新K线开始时，才更新信号有效性和检查进场信号
+        UpdateSignalValidity();
+        CheckEntrySignals();
+    }
+
+    // 显示EMA、ATR和RSI指标
+    DisplayIndicators();
+
+    if (PositionsTotal() > 0)
+    {
+        if (StopLossMethod == SL_DYNAMIC)
+            ManageTrailingStop();
+    }
+}
+
+//+------------------------------------------------------------------+
+//| 显示指标函数                                                     |
+//+------------------------------------------------------------------+
+void DisplayIndicators()
+{
+    double ema576Value[1], ema676Value[1], atrValue[1], rsiValue[1];
+
+    // 复制指标值
+    if (CopyBuffer(ema576Handle, 0, 0, 1, ema576Value) < 0 ||
+        CopyBuffer(ema676Handle, 0, 0, 1, ema676Value) < 0 ||
+        CopyBuffer(atrHandle, 0, 0, 1, atrValue) < 0 ||
+        CopyBuffer(rsiHandle, 0, 0, 1, rsiValue) < 0)
+    {
+        Print("无法获取指标数据");
+        return;
+    }
+
+    // 打印均线、ATR和RSI值
+    Print("EMA576: ", ema576Value[0], " EMA676: ", ema676Value[0], " ATR14: ", atrValue[0], " RSI21: ", rsiValue[0]);
+
+    // 绘制RSI水平线
+    ObjectCreate(0, "RSI_Level_30", OBJ_HLINE, 0, TimeCurrent(), 30);
+    ObjectSetInteger(0, "RSI_Level_30", OBJPROP_COLOR, clrRed);
+    ObjectCreate(0, "RSI_Level_70", OBJ_HLINE, 0, TimeCurrent(), 70);
+    ObjectSetInteger(0, "RSI_Level_70", OBJPROP_COLOR, clrRed);
+}
 
 //+------------------------------------------------------------------+
 //| 交易事件处理函数                                                 |
@@ -154,36 +227,5 @@ void OnTrade()
         }
     }
 }
-
-//+------------------------------------------------------------------+
-//| Expert tick function                                             |
-//+------------------------------------------------------------------+
-void OnTick()
-{
-    if (!IsWithinTradingHours(TradeStartHour, TradeEndHour) || !IsMonthAllowed(AllowedMonths))
-        return;
-
-    // 获取当前K线的时间
-    datetime newBarTime = iTime(_Symbol, Timeframe, 0);
-
-    // 判断是否是新K线开始
-    if (newBarTime != currentBarTime)
-    {
-        currentBarTime = newBarTime;  // 更新当前K线的时间
-        isOrderClosedThisBar = false; // 重置标记，表示新K线开始
-        stopLossHitThisBar = false;   // 重置止损状态
-
-        // 只有在新K线开始时，才更新信号有效性和检查进场信号
-        UpdateSignalValidity();
-        CheckEntrySignals();
-    }
-
-    if (PositionsTotal() > 0)
-    {
-        if (StopLossMethod == SL_DYNAMIC)
-            ManageTrailingStop();
-    }
-}
-
 
 //+------------------------------------------------------------------+
